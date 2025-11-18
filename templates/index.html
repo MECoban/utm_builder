@@ -1,0 +1,261 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>UTM Link Builder</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>🔗 UTM Link Builder</h1>
+            <p class="subtitle">Kampanya linklerinizi kolayca oluşturun</p>
+        </header>
+
+        <div class="card">
+            <form id="utmForm">
+                <div class="form-group">
+                    <label for="base_url">
+                        Base URL <span class="required">*</span>
+                    </label>
+                    <input 
+                        type="url" 
+                        id="base_url" 
+                        name="base_url" 
+                        placeholder="https://example.com/sayfa"
+                        required
+                    >
+                    <small>Kampanya yapmak istediğiniz web sayfasının URL'si</small>
+                </div>
+
+                <div class="form-group">
+                    <label for="launch_group">
+                        Lansman / Kampanya Grubu <span class="optional">(opsiyonel)</span>
+                    </label>
+                    <input 
+                        type="text" 
+                        id="launch_group" 
+                        name="launch_group" 
+                        placeholder="Örn: Ocak 2025 Lansman, Yaz İndirimleri, Black Friday"
+                        list="launchGroupSuggestions"
+                    >
+                    <datalist id="launchGroupSuggestions"></datalist>
+                    <small>Bu linki bir lansman/kampanya grubuna atayın (raporlama ve filtreleme için)</small>
+                </div>
+
+                <div class="form-row">
+                    <div class="form-group">
+                        <label for="utm_source">
+                            UTM Source <span class="required">*</span>
+                        </label>
+                        <input 
+                            type="text" 
+                            id="utm_source" 
+                            name="utm_source" 
+                            placeholder="google, facebook, newsletter"
+                            required
+                        >
+                        <small>Trafik kaynağı</small>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="utm_medium">
+                            UTM Medium <span class="required">*</span>
+                        </label>
+                        <input 
+                            type="text" 
+                            id="utm_medium" 
+                            name="utm_medium" 
+                            placeholder="cpc, email, social"
+                            required
+                        >
+                        <small>Marketing ortamı</small>
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label for="utm_campaign">
+                        UTM Campaign <span class="required">*</span>
+                    </label>
+                    <input 
+                        type="text" 
+                        id="utm_campaign" 
+                        name="utm_campaign" 
+                        placeholder="summer_sale_2025"
+                        required
+                    >
+                    <small>Kampanya adı</small>
+                </div>
+
+                <div class="form-row">
+                    <div class="form-group">
+                        <label for="utm_term">
+                            UTM Term <span class="optional">(opsiyonel)</span>
+                        </label>
+                        <input 
+                            type="text" 
+                            id="utm_term" 
+                            name="utm_term" 
+                            placeholder="keyword1, keyword2"
+                        >
+                        <small>Ücretli anahtar kelimeler</small>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="utm_content">
+                            UTM Content <span class="optional">(opsiyonel)</span>
+                        </label>
+                        <input 
+                            type="text" 
+                            id="utm_content" 
+                            name="utm_content" 
+                            placeholder="banner_top, link_footer"
+                        >
+                        <small>İçerik tipi veya reklam versiyonu</small>
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label for="description">
+                        Açıklama <span class="optional">(opsiyonel)</span>
+                    </label>
+                    <textarea 
+                        id="description" 
+                        name="description" 
+                        rows="3"
+                        placeholder="Bu kampanya hakkında notlar ekleyin..."
+                    ></textarea>
+                    <small>Bu link için hatırlatıcı açıklama (sadece kayıtta tutulur, linkde görünmez)</small>
+                </div>
+
+                <div class="button-group">
+                    <button type="submit" class="btn btn-primary">
+                        🚀 Link Oluştur
+                    </button>
+                    <button type="button" id="resetBtn" class="btn btn-secondary">
+                        🔄 Temizle
+                    </button>
+                </div>
+            </form>
+        </div>
+
+        <div id="resultCard" class="card result-card" style="display: none;">
+            <h3>✅ UTM Linkiniz Hazır ve Kaydedildi!</h3>
+            <div class="result-box">
+                <div id="resultUrl" class="result-url"></div>
+                <button id="copyBtn" class="btn btn-copy">
+                    📋 Kopyala
+                </button>
+            </div>
+            <div id="successMessage" class="success-message" style="display: none;">
+                ✓ Link kopyalandı!
+            </div>
+            <a href="/links" class="btn btn-view-links">
+                📚 Tüm Linkleri Görüntüle
+            </a>
+        </div>
+
+        <div id="errorCard" class="card error-card" style="display: none;">
+            <h3>❌ Hata</h3>
+            <p id="errorMessage"></p>
+        </div>
+    </div>
+
+    <script>
+        const form = document.getElementById('utmForm');
+        const resultCard = document.getElementById('resultCard');
+        const errorCard = document.getElementById('errorCard');
+        const resultUrl = document.getElementById('resultUrl');
+        const errorMessage = document.getElementById('errorMessage');
+        const copyBtn = document.getElementById('copyBtn');
+        const resetBtn = document.getElementById('resetBtn');
+        const successMessage = document.getElementById('successMessage');
+
+        form.addEventListener('submit', async (e) => {
+            e.preventDefault();
+
+            // Hata ve sonuç kartlarını gizle
+            resultCard.style.display = 'none';
+            errorCard.style.display = 'none';
+            successMessage.style.display = 'none';
+
+            const formData = {
+                base_url: document.getElementById('base_url').value,
+                launch_group: document.getElementById('launch_group').value,
+                utm_source: document.getElementById('utm_source').value,
+                utm_medium: document.getElementById('utm_medium').value,
+                utm_campaign: document.getElementById('utm_campaign').value,
+                utm_term: document.getElementById('utm_term').value,
+                utm_content: document.getElementById('utm_content').value,
+                description: document.getElementById('description').value
+            };
+
+            try {
+                const response = await fetch('/build', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(formData)
+                });
+
+                const data = await response.json();
+
+                if (response.ok) {
+                    resultUrl.textContent = data.utm_url;
+                    resultCard.style.display = 'block';
+                    resultCard.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+                } else {
+                    errorMessage.textContent = data.error || 'Bir hata oluştu';
+                    errorCard.style.display = 'block';
+                    errorCard.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+                }
+            } catch (error) {
+                errorMessage.textContent = 'Sunucu ile bağlantı kurulamadı';
+                errorCard.style.display = 'block';
+                errorCard.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+            }
+        });
+
+        copyBtn.addEventListener('click', async () => {
+            try {
+                await navigator.clipboard.writeText(resultUrl.textContent);
+                successMessage.style.display = 'block';
+                
+                setTimeout(() => {
+                    successMessage.style.display = 'none';
+                }, 2000);
+            } catch (error) {
+                alert('Kopyalama başarısız oldu');
+            }
+        });
+
+        resetBtn.addEventListener('click', () => {
+            form.reset();
+            resultCard.style.display = 'none';
+            errorCard.style.display = 'none';
+            successMessage.style.display = 'none';
+        });
+
+        // Önceki lansman gruplarını yükle (autocomplete için)
+        async function loadLaunchGroups() {
+            try {
+                const response = await fetch('/api/launch-groups');
+                const groups = await response.json();
+                
+                const datalist = document.getElementById('launchGroupSuggestions');
+                datalist.innerHTML = groups.map(g => 
+                    `<option value="${g.launch_group}">`
+                ).join('');
+            } catch (error) {
+                console.error('Lansman grupları yüklenemedi:', error);
+            }
+        }
+
+        // Sayfa yüklendiğinde autocomplete listesini yükle
+        loadLaunchGroups();
+    </script>
+</body>
+</html>
+

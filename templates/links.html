@@ -1,0 +1,622 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Kaydedilen UTM Linkler</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>📚 Kaydedilen UTM Linkler</h1>
+            <p class="subtitle">Daha önce oluşturduğunuz tüm kampanya linkleri</p>
+        </header>
+
+        <div class="card">
+            <div class="links-header">
+                <a href="/" class="btn btn-secondary">
+                    ⬅️ Yeni Link Oluştur
+                </a>
+                <div class="links-count">
+                    Toplam <span id="totalCount">0</span> link
+                </div>
+            </div>
+
+            <!-- Filtreler -->
+            <div class="filters-section">
+                <div class="filter-group">
+                    <label for="launchFilter">🚀 Lansman Grubu:</label>
+                    <select id="launchFilter" class="filter-select">
+                        <option value="">Tümü</option>
+                    </select>
+                </div>
+                <button id="clearFilters" class="btn btn-small btn-secondary">
+                    🔄 Filtreleri Temizle
+                </button>
+            </div>
+
+            <!-- Lansman Grupları (Accordion) -->
+            <div id="launchGroupsContainer"></div>
+
+            <!-- Tüm Linkler (Filtrelenmiş) -->
+            <div id="linksContainer">
+                <div class="loading">Yükleniyor...</div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let allLinks = [];
+        let launchGroups = [];
+        let currentFilter = '';
+
+        // Linkleri ve grupları yükle
+        async function loadData() {
+            try {
+                const [linksRes, groupsRes] = await Promise.all([
+                    fetch('/api/links'),
+                    fetch('/api/launch-groups')
+                ]);
+                
+                allLinks = await linksRes.json();
+                launchGroups = await groupsRes.json();
+                
+                document.getElementById('totalCount').textContent = allLinks.length;
+                
+                // Filtreleri doldur
+                populateFilters();
+                
+                // Görünümü göster
+                renderView();
+                
+            } catch (error) {
+                document.getElementById('linksContainer').innerHTML = `
+                    <div class="error-state">
+                        <p>❌ Veriler yüklenirken bir hata oluştu.</p>
+                    </div>
+                `;
+            }
+        }
+
+        // Filtreleri doldur
+        function populateFilters() {
+            const launchFilter = document.getElementById('launchFilter');
+            launchFilter.innerHTML = '<option value="">Tümü</option>';
+            
+            launchGroups.forEach(group => {
+                const option = document.createElement('option');
+                option.value = group.launch_group;
+                option.textContent = `${group.launch_group} (${group.link_count})`;
+                launchFilter.appendChild(option);
+            });
+        }
+
+        // Görünümü render et
+        function renderView() {
+            const container = document.getElementById('launchGroupsContainer');
+            const linksContainer = document.getElementById('linksContainer');
+            
+            if (allLinks.length === 0) {
+                linksContainer.innerHTML = `
+                    <div class="empty-state">
+                        <p>🔍 Henüz kayıtlı link bulunmuyor.</p>
+                        <a href="/" class="btn btn-primary" style="margin-top: 1rem;">
+                            🚀 İlk Linkinizi Oluşturun
+                        </a>
+                    </div>
+                `;
+                container.innerHTML = '';
+                return;
+            }
+
+            if (currentFilter) {
+                // Filtreli görünüm
+                container.innerHTML = '';
+                const filteredLinks = allLinks.filter(link => 
+                    link.launch_group === currentFilter
+                );
+                renderLinks(filteredLinks, linksContainer);
+            } else {
+                // Lansman gruplarına göre gruplandırılmış görünüm
+                container.innerHTML = renderLaunchGroups();
+                
+                // Gruplanmamış linkler
+                const ungroupedLinks = allLinks.filter(link => 
+                    !link.launch_group || link.launch_group === ''
+                );
+                
+                if (ungroupedLinks.length > 0) {
+                    linksContainer.innerHTML = `
+                        <div class="section-title">
+                            <h3>📌 Diğer Linkler (${ungroupedLinks.length})</h3>
+                        </div>
+                    `;
+                    renderLinks(ungroupedLinks, linksContainer, true);
+                } else {
+                    linksContainer.innerHTML = '';
+                }
+            }
+        }
+
+        // Lansman gruplarını render et
+        function renderLaunchGroups() {
+            if (launchGroups.length === 0) return '';
+            
+            return launchGroups.map(group => {
+                const groupLinks = allLinks.filter(link => 
+                    link.launch_group === group.launch_group
+                );
+                
+                return `
+                    <div class="launch-group">
+                        <div class="launch-group-header" onclick="toggleGroup('${group.launch_group}')">
+                            <div class="launch-group-info">
+                                <h3>🚀 ${group.launch_group}</h3>
+                                <div class="launch-group-meta">
+                                    <span>📊 ${group.link_count} link</span>
+                                    <span>📅 ${formatDate(group.first_link)} - ${formatDate(group.last_link)}</span>
+                                </div>
+                            </div>
+                            <span class="toggle-icon">▼</span>
+                        </div>
+                        <div class="launch-group-content" id="group-${sanitizeId(group.launch_group)}">
+                            ${renderLinksList(groupLinks)}
+                        </div>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        // Grup toggle
+        function toggleGroup(groupName) {
+            const content = document.getElementById(`group-${sanitizeId(groupName)}`);
+            const header = content.previousElementSibling;
+            const icon = header.querySelector('.toggle-icon');
+            
+            if (content.style.display === 'none') {
+                content.style.display = 'block';
+                icon.textContent = '▼';
+            } else {
+                content.style.display = 'none';
+                icon.textContent = '▶';
+            }
+        }
+
+        // ID'yi temizle
+        function sanitizeId(str) {
+            return str.replace(/[^a-zA-Z0-9]/g, '_');
+        }
+
+        // Linkleri render et (filtreli görünüm için)
+        function renderLinks(links, container, append = false) {
+            if (links.length === 0) {
+                container.innerHTML = `
+                    <div class="empty-state">
+                        <p>🔍 Bu filtre için link bulunamadı.</p>
+                    </div>
+                `;
+                return;
+            }
+            
+            const html = renderLinksList(links);
+            if (append) {
+                container.innerHTML += html;
+            } else {
+                container.innerHTML = html;
+            }
+        }
+
+        // Link listesi HTML'i oluştur
+        function renderLinksList(links) {
+            return links.map(link => `
+                <div class="link-item" data-id="${link.id}">
+                    <div class="link-header">
+                        <div class="link-meta">
+                            <span class="link-campaign">🎯 ${link.utm_campaign}</span>
+                            <span class="link-date">📅 ${formatDate(link.created_at)}</span>
+                            ${link.launch_group ? `<span class="link-launch-badge">🚀 ${link.launch_group}</span>` : ''}
+                        </div>
+                        <button class="btn-delete" onclick="deleteLink(${link.id})">
+                            🗑️
+                        </button>
+                    </div>
+                    
+                    <div class="link-details">
+                        <div class="detail-row">
+                            <strong>Kaynak:</strong> ${link.utm_source} | 
+                            <strong>Ortam:</strong> ${link.utm_medium}
+                            ${link.utm_term ? `| <strong>Terim:</strong> ${link.utm_term}` : ''}
+                            ${link.utm_content ? `| <strong>İçerik:</strong> ${link.utm_content}` : ''}
+                        </div>
+                        
+                        ${link.description ? `
+                            <div class="detail-row">
+                                <strong>Açıklama:</strong> ${link.description}
+                            </div>
+                        ` : ''}
+                        
+                        <div class="link-url">
+                            <code>${link.utm_url}</code>
+                        </div>
+                    </div>
+                    
+                    <div class="link-actions">
+                        <button class="btn btn-small btn-copy-item" onclick="copyLink('${link.utm_url}', ${link.id})">
+                            📋 Kopyala
+                        </button>
+                        <a href="${link.base_url}" target="_blank" class="btn btn-small btn-secondary">
+                            🔗 Ziyaret Et
+                        </a>
+                    </div>
+                    
+                    <div class="copy-feedback" id="feedback-${link.id}" style="display: none;">
+                        ✓ Kopyalandı!
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        // Tarihi formatla
+        function formatDate(dateString) {
+            const date = new Date(dateString);
+            const now = new Date();
+            const diffMs = now - date;
+            const diffMins = Math.floor(diffMs / 60000);
+            const diffHours = Math.floor(diffMs / 3600000);
+            const diffDays = Math.floor(diffMs / 86400000);
+            
+            if (diffMins < 1) return 'Az önce';
+            if (diffMins < 60) return `${diffMins} dakika önce`;
+            if (diffHours < 24) return `${diffHours} saat önce`;
+            if (diffDays < 7) return `${diffDays} gün önce`;
+            
+            return date.toLocaleDateString('tr-TR', {
+                day: 'numeric',
+                month: 'short',
+                year: 'numeric'
+            });
+        }
+
+        // Link kopyala
+        async function copyLink(url, id) {
+            try {
+                await navigator.clipboard.writeText(url);
+                const feedback = document.getElementById(`feedback-${id}`);
+                feedback.style.display = 'block';
+                
+                setTimeout(() => {
+                    feedback.style.display = 'none';
+                }, 2000);
+            } catch (error) {
+                alert('Kopyalama başarısız oldu');
+            }
+        }
+
+        // Link sil
+        async function deleteLink(id) {
+            if (!confirm('Bu linki silmek istediğinizden emin misiniz?')) {
+                return;
+            }
+            
+            try {
+                const response = await fetch(`/api/links/${id}`, {
+                    method: 'DELETE'
+                });
+                
+                if (response.ok) {
+                    // Veriyi güncelle ve yeniden render et
+                    await loadData();
+                } else {
+                    alert('Silme işlemi başarısız oldu');
+                }
+            } catch (error) {
+                alert('Bir hata oluştu');
+            }
+        }
+
+        // Filtre değişikliği
+        document.getElementById('launchFilter').addEventListener('change', (e) => {
+            currentFilter = e.target.value;
+            renderView();
+        });
+
+        // Filtreleri temizle
+        document.getElementById('clearFilters').addEventListener('click', () => {
+            document.getElementById('launchFilter').value = '';
+            currentFilter = '';
+            renderView();
+        });
+
+        // Sayfa yüklendiğinde veriyi getir
+        loadData();
+    </script>
+
+    <style>
+        .links-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 2rem;
+            padding-bottom: 1rem;
+            border-bottom: 2px solid var(--border-color);
+        }
+
+        .links-count {
+            font-weight: 600;
+            color: var(--text-secondary);
+        }
+
+        .links-count span {
+            color: var(--primary-color);
+            font-size: 1.2rem;
+        }
+
+        .filters-section {
+            background: var(--bg-color);
+            padding: 1rem;
+            border-radius: 8px;
+            margin-bottom: 2rem;
+            display: flex;
+            gap: 1rem;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+
+        .filter-group {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            flex: 1;
+            min-width: 200px;
+        }
+
+        .filter-group label {
+            font-weight: 600;
+            margin: 0;
+            white-space: nowrap;
+        }
+
+        .filter-select {
+            flex: 1;
+            padding: 0.5rem;
+            border: 2px solid var(--border-color);
+            border-radius: 6px;
+            font-size: 0.9rem;
+            font-family: inherit;
+        }
+
+        .launch-group {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            border-radius: 12px;
+            margin-bottom: 1.5rem;
+            overflow: hidden;
+        }
+
+        .launch-group-header {
+            padding: 1.5rem;
+            cursor: pointer;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            color: white;
+            transition: all 0.2s ease;
+        }
+
+        .launch-group-header:hover {
+            background: rgba(255, 255, 255, 0.1);
+        }
+
+        .launch-group-info h3 {
+            margin: 0 0 0.5rem 0;
+            font-size: 1.3rem;
+        }
+
+        .launch-group-meta {
+            display: flex;
+            gap: 1rem;
+            font-size: 0.9rem;
+            opacity: 0.95;
+        }
+
+        .toggle-icon {
+            font-size: 1.5rem;
+            transition: transform 0.2s ease;
+        }
+
+        .launch-group-content {
+            background: white;
+            padding: 1rem;
+        }
+
+        .section-title {
+            margin: 2rem 0 1rem 0;
+        }
+
+        .section-title h3 {
+            color: var(--text-primary);
+            font-size: 1.2rem;
+        }
+
+        .link-launch-badge {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 0.25rem 0.75rem;
+            border-radius: 12px;
+            font-size: 0.85rem;
+            font-weight: 600;
+        }
+
+        .loading {
+            text-align: center;
+            padding: 3rem;
+            color: var(--text-secondary);
+            font-size: 1.1rem;
+        }
+
+        .empty-state, .error-state {
+            text-align: center;
+            padding: 3rem;
+        }
+
+        .empty-state p, .error-state p {
+            font-size: 1.1rem;
+            color: var(--text-secondary);
+            margin-bottom: 1rem;
+        }
+
+        .link-item {
+            background: var(--bg-color);
+            border: 2px solid var(--border-color);
+            border-radius: 8px;
+            padding: 1.5rem;
+            margin-bottom: 1rem;
+            transition: all 0.2s ease;
+        }
+
+        .link-item:hover {
+            border-color: var(--primary-color);
+            box-shadow: var(--shadow);
+        }
+
+        .link-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            margin-bottom: 1rem;
+        }
+
+        .link-meta {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.75rem;
+            align-items: center;
+        }
+
+        .link-campaign {
+            font-size: 1.1rem;
+            font-weight: 700;
+            color: var(--primary-color);
+        }
+
+        .link-date {
+            color: var(--text-secondary);
+            font-size: 0.9rem;
+        }
+
+        .btn-delete {
+            background: transparent;
+            border: none;
+            cursor: pointer;
+            font-size: 1.2rem;
+            padding: 0.25rem 0.5rem;
+            transition: all 0.2s ease;
+        }
+
+        .btn-delete:hover {
+            transform: scale(1.2);
+        }
+
+        .link-details {
+            margin-bottom: 1rem;
+        }
+
+        .detail-row {
+            margin-bottom: 0.5rem;
+            color: var(--text-primary);
+            font-size: 0.9rem;
+            line-height: 1.6;
+        }
+
+        .link-url {
+            background: white;
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
+            padding: 0.75rem;
+            margin-top: 0.75rem;
+            overflow-x: auto;
+        }
+
+        .link-url code {
+            font-family: 'Courier New', monospace;
+            font-size: 0.85rem;
+            color: var(--text-primary);
+            word-break: break-all;
+        }
+
+        .link-actions {
+            display: flex;
+            gap: 0.5rem;
+            margin-top: 1rem;
+        }
+
+        .btn-small {
+            padding: 0.5rem 1rem;
+            font-size: 0.9rem;
+        }
+
+        .btn-copy-item {
+            background: var(--primary-color);
+            color: white;
+        }
+
+        .btn-copy-item:hover {
+            background: var(--primary-hover);
+        }
+
+        .copy-feedback {
+            text-align: center;
+            margin-top: 0.75rem;
+            padding: 0.5rem;
+            background: var(--success-color);
+            color: white;
+            border-radius: 6px;
+            font-weight: 600;
+        }
+
+        @keyframes slideOut {
+            from {
+                opacity: 1;
+                transform: translateX(0);
+            }
+            to {
+                opacity: 0;
+                transform: translateX(-20px);
+            }
+        }
+
+        @media (max-width: 640px) {
+            .links-header {
+                flex-direction: column;
+                gap: 1rem;
+                align-items: flex-start;
+            }
+
+            .filters-section {
+                flex-direction: column;
+                align-items: stretch;
+            }
+
+            .filter-group {
+                flex-direction: column;
+                align-items: stretch;
+            }
+
+            .launch-group-meta {
+                flex-direction: column;
+                gap: 0.25rem;
+            }
+
+            .link-meta {
+                flex-direction: column;
+                gap: 0.5rem;
+                align-items: flex-start;
+            }
+
+            .link-actions {
+                flex-direction: column;
+            }
+        }
+    </style>
+</body>
+</html>
